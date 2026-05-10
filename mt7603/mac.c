@@ -267,6 +267,13 @@ void mt7603_wtbl_set_ps(struct mt7603_dev *dev, struct mt7603_sta *sta,
 
 out:
 	spin_unlock_bh(&dev->ps_lock);
+
+	if (enabled && sta->wcid.sta) {
+		int i;
+
+		for (i = 0; i < IEEE80211_NUM_TIDS; i++)
+			ieee80211_stop_tx_ba_session(sta->wcid.sta, i);
+	}
 }
 
 void mt7603_wtbl_clear(struct mt7603_dev *dev, int idx)
