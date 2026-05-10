@@ -29,8 +29,8 @@ mt7603_rx_loopback_skb(struct mt7603_dev *dev, struct sk_buff *skb)
 	struct ieee80211_sta *sta;
 	struct mt7603_sta *msta;
 	struct mt76_wcid *wcid;
-	u8 qid, tid = 0, hwq = 0;
 	void *priv;
+	u8 tid = 0;
 	int idx;
 	u32 val;
 
@@ -39,51 +39,44 @@ mt7603_rx_loopback_skb(struct mt7603_dev *dev, struct sk_buff *skb)
 
 	val = le32_to_cpu(txd[1]);
 	idx = FIELD_GET(MT_TXD1_WLAN_IDX, val);
-	skb->priority = FIELD_GET(MT_TXD1_TID, val);
 
 	if (idx >= MT7603_WTBL_STA - 1)
 		goto free;
 
 	wcid = mt76_wcid_ptr(dev, idx);
-	if (!wcid)
+	if (!wcid || !wcid->sta)
 		goto free;
 
 	priv = msta = container_of(wcid, struct mt7603_sta, wcid);
-
 	sta = container_of(priv, struct ieee80211_sta, drv_priv);
 	hdr = (struct ieee80211_hdr *)&skb->data[MT_TXD_SIZE];
 
-	hwq = wmm_queue_map[IEEE80211_AC_BE];
 	if (ieee80211_is_data_qos(hdr->frame_control)) {
-		tid = *ieee80211_get_qos_ctl(hdr) &
-			 IEEE80211_QOS_CTL_TAG1D_MASK;
-		qid = tid_to_ac[tid];
-		hwq = wmm_queue_map[qid];
-		skb_set_queue_mapping(skb, qid);
+		tid = *ieee80211_get_qos_ctl(hdr) & IEEE80211_QOS_CTL_TAG1D_MASK;
+		skb_set_queue_mapping(skb, tid_to_ac[tid]);
 	} else if (ieee80211_is_data(hdr->frame_control)) {
 		skb_set_queue_mapping(skb, IEEE80211_AC_BE);
-		hwq = wmm_queue_map[IEEE80211_AC_BE];
 	} else {
 		skb_pull(skb, MT_TXD_SIZE);
 		if (!ieee80211_is_bufferable_mmpdu(skb))
 			goto free;
-		skb_push(skb, MT_TXD_SIZE);
+		
 		skb_set_queue_mapping(skb, MT_TXQ_PSD);
-		hwq = MT_TX_HW_QUEUE_MGMT;
+		goto queue;
 	}
 
-	ieee80211_sta_set_buffered(sta, tid, true);
+	skb_pull(skb, MT_TXD_SIZE);
 
-	val = le32_to_cpu(txd[0]);
-	val &= ~(MT_TXD0_P_IDX | MT_TXD0_Q_IDX);
-	val |= FIELD_PREP(MT_TXD0_Q_IDX, hwq);
-	txd[0] = cpu_to_le32(val);
+queue:
+	ieee80211_sta_set_buffered(sta, tid, true);
 
 	spin_lock_bh(&dev->ps_lock);
 	__skb_queue_tail(&msta->psq, skb);
 	if (skb_queue_len(&msta->psq) >= 64) {
 		skb = __skb_dequeue(&msta->psq);
+		spin_unlock_bh(&dev->ps_lock);
 		dev_kfree_skb(skb);
+		return;
 	}
 	spin_unlock_bh(&dev->ps_lock);
 	return;
