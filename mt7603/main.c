@@ -432,7 +432,7 @@ mt7603_ps_set_more_data(struct sk_buff *skb)
 	hdr->frame_control |= cpu_to_le16(IEEE80211_FCTL_MOREDATA);
 }
 
-static void
+Static void
 mt7603_release_buffered_frames(struct ieee80211_hw *hw,
 			       struct ieee80211_sta *sta,
 			       u16 tids, int nframes,
@@ -443,34 +443,60 @@ mt7603_release_buffered_frames(struct ieee80211_hw *hw,
 	struct mt7603_sta *msta = (struct mt7603_sta *)sta->drv_priv;
 	struct sk_buff_head list;
 	struct sk_buff *skb, *tmp;
+	struct ieee80211_hdr *hdr;
+	struct ieee80211_tx_info *info;
+	bool had_frames = false;
+	bool more_tid_frames = false;
+	int left = nframes;
 
 	__skb_queue_head_init(&list);
-
 	mt7603_wtbl_set_ps(dev, msta, false);
-
 	spin_lock_bh(&dev->ps_lock);
 	skb_queue_walk_safe(&msta->psq, skb, tmp) {
-		if (!nframes)
+		if (!left)
 			break;
-
 		if (!(tids & BIT(skb->priority)))
 			continue;
-
-		skb_set_queue_mapping(skb, MT_TXQ_PSD);
 		__skb_unlink(skb, &msta->psq);
+		skb_set_queue_mapping(skb, MT_TXQ_PSD);
 		mt7603_ps_set_more_data(skb);
 		__skb_queue_tail(&list, skb);
-		if (nframes > 0)
-			nframes--;
+		had_frames = true;
+		if (left > 0)
+			left--;
+	}
+
+	if (had_frames && left == 0) {
+		skb_queue_walk(&msta->psq, skb) {
+			if (tids & BIT(skb->priority)) {
+				more_tid_frames = true;
+				break;
+			}
+		}
 	}
 	spin_unlock_bh(&dev->ps_lock);
 
-	mt7603_ps_tx_list(dev, &list);
+	if (had_frames && left <= 0) {
+		skb = skb_peek_tail(&list);
+		hdr = (struct ieee80211_hdr *)&skb->data[MT_TXD_SIZE];
+		info = IEEE80211_SKB_CB(skb);
+		if (!more_data && !more_tid_frames)
+			hdr->frame_control &= ~cpu_to_le16(IEEE80211_FCTL_MOREDATA);
+		if (ieee80211_is_data_qos(hdr->frame_control)) {
+			u8 *qos_ctl = ieee80211_get_qos_ctl(hdr);
+			*qos_ctl |= IEEE80211_QOS_CTL_EOSP;
+		}
+		info->flags |= IEEE80211_TX_STATUS_EOSP |
+			       IEEE80211_TX_CTL_REQ_TX_STATUS;
+	}
 
-	if (nframes) {
-		mt76_release_buffered_frames(hw, sta, tids, nframes, reason,
+	if (had_frames)
+		mt7603_ps_tx_list(dev, &list);
+
+	if (left > 0) {
+		mt76_release_buffered_frames(hw, sta, tids, left, reason,
 					     more_data);
-	} else {
+	} else if (!had_frames) {
 		ieee80211_sta_eosp(sta);
 	}
 }
