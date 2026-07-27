@@ -502,7 +502,7 @@ mt76_txq_send_burst(struct mt76_phy *phy, struct mt76_queue *q,
 	if (test_bit(MT_WCID_FLAG_PS, &wcid->flags)) {
 		if (!(dev->drv->drv_flags & MT_DRV_HW_PS_BUFFERING))
 			return 0;
-		if (ieee80211_txq_aql_pending(phy->hw, txq))
+		if (ieee80211_txq_airtime_check(phy->hw, txq))
 			return 0;
 	}
 
