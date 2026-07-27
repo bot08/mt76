@@ -11,7 +11,7 @@ mt7603_reset_read(struct seq_file *s, void *data)
 		[RESET_CAUSE_TX_BUSY] = "TX DMA busy stuck",
 		[RESET_CAUSE_RX_BUSY] = "RX DMA busy stuck",
 		[RESET_CAUSE_RX_PSE_BUSY] = "RX PSE busy stuck",
-		[RESET_CAUSE_BEACON_STUCK] = "Beacon stuck",
+		[RESET_CAUSE_BEACON_STUCK] = "Beacon stuck in ass",
 		[RESET_CAUSE_MCU_HANG] = "MCU hang",
 		[RESET_CAUSE_RESET_FAILED] = "PSE reset failed",
 	};
@@ -111,7 +111,7 @@ void mt7603_init_debugfs(struct mt7603_dev *dev)
 				    mt7603_reset_read);
 	debugfs_create_devm_seqfile(dev->mt76.dev, "radio", dir,
 				    mt7603_radio_read);
-	debugfs_create_u8("sensitivity_limit", 0600, dir,
+	debugfs_create_u8("chinchin_sensitivity_limit", 0600, dir,
 			    &dev->sensitivity_limit);
 	debugfs_create_bool("dynamic_sensitivity", 0600, dir,
 			    &dev->dynamic_sensitivity);
